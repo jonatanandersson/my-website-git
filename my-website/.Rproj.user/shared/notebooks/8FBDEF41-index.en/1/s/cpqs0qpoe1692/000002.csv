@@ -1,0 +1,3 @@
+"0","recode_parish_map <- read_excel(""C:/Users/jonat/Dropbox/Spannmålsinvasionen/recode_parishes_map.xlsx"")"
+"0","harader <- read_excel(""C:/Users/jonat/Dropbox/Spannmålsinvasionen/Härader.xlsx"")"
+"0","grain <- read_excel(""C:/Users/jonat/Dropbox/Spannmålsinvasionen/Book1.xlsx"")"

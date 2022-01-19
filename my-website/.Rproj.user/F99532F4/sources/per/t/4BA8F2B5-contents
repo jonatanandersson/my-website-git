@@ -1,0 +1,143 @@
+---
+title: "Figures"
+output: word_document
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lfe)
+library(scales)
+library(sf)
+library(ggrepel)
+library(readxl)
+library(ggpubr)
+library(broom)
+library(rnaturalearth)
+```
+
+```{r echo=FALSE, warning=FALSE, include=FALSE, message=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.width = 6,
+                 fig.height = 4,
+                 fig.path='figure', 
+                 cache.path='cache',
+                 external=TRUE,
+                 echo=FALSE,
+                 warning=FALSE,
+                 message=FALSE,
+                 fig.pos='H',
+                 options(knitr.kable.NA = '')
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+
+```{r echo=FALSE, include=FALSE}
+dat <- read.csv("fulldataset.csv", header = TRUE, sep = ",")
+
+dat <- dat %>%
+  mutate(post = (year >= 1891),
+         treated_group = (alto == 1),
+         treat = post*treated_group) %>%
+  mutate(alto = ifelse(alto == 1, "Upper Class", "Middle and Lower Class"))
+
+count(dat, post, treated_group, treat)
+
+df <- dat %>%
+  group_by(year, alto) %>%
+  summarise(mean = mean(real_wealth))
+```
+
+```{r}
+coords <- read_excel("coords.xlsx")
+
+muni_mex = st_read("muni_2012gw/Muni_2012gw.shp")
+
+sonora <- muni_mex %>%
+  filter(CVE_ENT == 26)
+
+obs_stat <- dat %>% 
+  group_by(locality) %>% 
+  summarise(obs = n()) %>%
+  left_join(coords, by = c("locality" = "Localidad")) %>%
+  mutate(urban = ifelse(locality == "Hermosillo", "Hermosillo", ifelse(locality == "Guaymas de Zaragoza", "Guaymas", NA)))
+
+wealth_stat <- dat %>% 
+  group_by(locality) %>% 
+  summarise(mean = mean(wealth)) %>%
+  left_join(coords, by = c("locality" = "Localidad")) %>%
+  mutate(urban = ifelse(locality == "Hermosillo", "Hermosillo", ifelse(locality == "Guaymas de Zaragoza", "Guaymas", NA)))
+```
+
+
+```{r echo=FALSE, dpi=300}
+ggplot(df, aes(year, mean, group = alto, colour = alto, shape = alto)) +
+  geom_line(size = 1, alpha = 0.5) +
+  geom_point(alpha = 0.5, size = 2) +
+  scale_color_brewer(palette = "Set1") +
+  geom_vline(xintercept = 1891, linetype = "dashed", size = .7) +
+  scale_x_continuous(breaks = seq(1850, 1910, 5)) +
+  scale_y_continuous(breaks = seq(0, max(df$mean), 50000), labels = unit_format(unit = "K", scale = 1e-3)) +
+  labs(y = "Real Wealth (Mean)", x = "Year", colour = "", shape = "") +
+  theme_classic() +
+  theme(legend.position = "bottom", legend.box.background = element_rect(colour = "black", size = 1))
+```
+
+```{r dpi=300}
+plot1 <- ggplot() +
+  geom_sf(data = sonora, colour = "white") +
+  geom_point(data = obs_stat, aes(lon, lat, size = obs), colour = "mediumvioletred", alpha = 0.5) +
+  geom_text_repel(data = obs_stat, aes(x = lon, y = lat, label = urban), 
+                  fontface = "bold", nudge_x = c(-2.2, -1), nudge_y = c(0.25, 0.25)) +
+  labs(size = "Number of \n observations", colour = "Number of \n observations") +
+  theme_void()
+
+plot1
+```
+
+```{r dpi=300}
+plot2 <- ggplot() +
+  geom_sf(data = sonora, colour = "white") +
+  geom_point(data = wealth_stat, aes(lon, lat, size = mean), colour = "green4", alpha = 0.5) +
+  geom_text_repel(data = wealth_stat, aes(x = lon, y = lat, label = urban), 
+                  fontface = "bold", nudge_x = c(-2.2, -1), nudge_y = c(0.25, 0.25)) +
+  labs(size = "Real Wealth \n (Mean)", colour = "Real Wealth \n (Mean)") +
+  theme_void()
+
+plot2
+```
+
+```{r dpi=300, fig.width=8, fig.height=6}
+ggarrange(plot1, plot2)
+```
+
+```{r}
+felm(normalwealth ~ treat + alto + sex + expropriation| year + loc_id | 0 | loc_id, dat) %>%
+  tidy()
+```
+
+```{r}
+dat %>% 
+  group_by(alto, year) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(year, count, group = alto, colour = alto)) +
+  geom_line() +
+  scale_y_continuous(breaks = seq(0, 55, 2)) +
+  scale_x_continuous(breaks = seq(1850,1910, 10)) +
+  labs(x = "Year", y = "N observations", colour = "") +
+  theme(legend.position = "bottom")
+```
+
+
+```{r dpi = 300}
+mexico_map <- ne_states("Mexico", returnclass = "sf") %>%
+  mutate(sonora = ifelse(name == "Sonora", "yes", "no"))
+
+ggplot(mexico_map) +
+  geom_sf(aes(fill = sonora), colour = NA) +
+  scale_fill_manual(values = c("grey", "darkred")) + 
+  theme_void() +
+  theme(legend.position = "none", panel.background = element_rect(fill = "aliceblue"))
+```
+

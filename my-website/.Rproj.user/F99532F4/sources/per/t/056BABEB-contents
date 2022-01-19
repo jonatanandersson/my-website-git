@@ -1,0 +1,123 @@
+---
+title: (SWE) Spannmålssådd i Sverige 1880
+author: R package build
+date: '2022-01-01'
+slug: spannmal-1880
+categories: []
+tags:
+  - Jordbrukshistoria
+  - Ekonomisk historia
+subtitle: ''
+summary: ''
+authors: []
+lastmod: '2022-01-01T17:12:51+01:00'
+featured: no
+image:
+  caption: ''
+  focal_point: ''
+  preview_only: no
+projects: []
+---
+```{r}
+library(tidyverse)
+library(histmaps)
+library(readxl)
+library(scales)
+```
+```{r echo=FALSE, warning=FALSE, include=FALSE, message=FALSE}
+ library(knitr)
+  opts_chunk$set(fig.width = 6,
+                 fig.height = 4,
+                 fig.path='figure', 
+                 cache.path='cache',
+                 external=TRUE,
+                 echo=FALSE,
+                 warning=FALSE,
+                 message=FALSE,
+                 fig.pos='H',
+                 options(knitr.kable.NA = '')
+                )
+  a4width<- 8.3
+  a4height<- 11.7
+```
+
+```{r}
+recode_parish_map <- read_excel("~/Dropbox/Spannmålsinvasionen/recode_parishes_map.xlsx")
+harader <- read_excel("~/Dropbox/Spannmålsinvasionen/Härader.xlsx")
+grain <- read_excel("~/Dropbox/Spannmålsinvasionen/Book1.xlsx")
+```
+
+
+```{r}
+harader <- harader %>%
+  mutate(From = ifelse(is.na(From), 0, From)) %>% 
+  mutate(Till = ifelse(is.na(Till), 2000, Till)) %>% 
+  filter(From <= 1880 & Till >= 1880) %>%
+  mutate(Kod = substr(Kod, 4, nchar(Kod))) %>%
+  select(c(Län, Område, Kod, Församling)) %>%
+  mutate(Kod = as.numeric(Kod)) %>%
+  rename("Area" = "Område") %>%
+  mutate(Area = ifelse(Län == "Jönköping" & Area == "Östra härad", "Östra härad Jön", 
+                       ifelse(Län == "Blekinge" & Area == "Östra härad", "Östra härad Ble", Area)))
+```
+  
+```{r}
+grain <- grain %>% 
+  rename("Area" = "Område") %>%
+  rowwise() %>%
+  mutate(wheat = sum(Höstvete, Vårvete, na.rm = TRUE)) %>% 
+  mutate(rye = sum(Höstråg, Vårråg, na.rm = TRUE)) %>% 
+  mutate(barley = as.numeric(Korn)) %>% mutate(oats = as.numeric(Havre)) %>%
+  mutate(wheat_litre = ifelse(Mått == "Kubikfot", (wheat*26.17), (wheat*164.871))) %>%
+  mutate(rye_litre = ifelse(Mått == "Kubikfot", (rye*26.17), (rye*164.871))) %>%
+  mutate(barley_litre = ifelse(Mått == "Kubikfot", (barley*26.17), (barley*164.871))) %>%
+  mutate(oats_litre = ifelse(Mått == "Kubikfot", (oats*26.17), (oats*164.871))) %>%
+  mutate(wheat_price = (wheat_litre/100)*13.25,
+         rye_price = (rye_litre/100)*10.65,
+         barley_price = (barley_litre/100)*8.56,
+         oats_price = (oats_litre/100)*4.97) %>%
+  mutate(Area = ifelse(Län == "Jönköping" & Area == "Östra härad", "Östra härad Jön", 
+                       ifelse(Län == "Blekinge" & Area == "Östra härad", "Östra härad Ble", Area))) %>% 
+  select(1:2, 31:34) %>% 
+  pivot_longer(cols = 3:6, names_to = "grain", values_to = "liter") %>% 
+  mutate(grain = gsub("_.*","", grain)) %>% 
+  mutate(grain = recode(grain, "wheat" = "Vete", "rye" = "Råg", "barley" = "Korn", "oats" = "Havre"))
+
+grain2 <- grain %>%
+  group_by(Area) %>% 
+  slice(which.max(liter))
+```
+  
+```{r}
+p_map <- hist_boundaries(date = "1880", type = "parish", format = "sf") %>%
+  left_join(recode_parish_map, by = "nadkod") %>%
+  mutate(nadkod = ifelse(!is.na(Kod), Kod, nadkod)) %>%
+  select(-Kod) %>%
+  left_join(harader, by = c("nadkod" = "Kod"))
+
+h_map <- p_map %>%
+  group_by(Area) %>%
+  summarise() %>%
+  left_join(grain2, by = "Area")
+```
+
+I höstas grävde jag lite i Hushållningssällskapens berättelser. Från denna mycket detaljerade jordbruksstatistikserie så plockade jag fram statistik på (oftast) häradsnivå över utsädet av de fyra spannmålen år 1880: havre, vete, råg och korn. Som kartan nedantill visar så var Sverige i princip uppdelat i en nordlig kornodlande del och en sydlig havreodlande del. Det viktiga jordbrukslandsskapet Uppland avviker dock från det generella mönstret. Där var istället råg det vanligast förekommande sädesslaget. Även Sveriges bördigaste landsdel sydvästra Skåne avviker. Där var i likhet med Norrland korn det vanligaste sädesslaget. Dock en annan kornvariant än den norrländska. 
+```{r}
+ggplot(h_map, aes(fill = grain)) +
+  geom_sf(colour = "NA") +
+  scale_fill_manual(values = c("yellow", "darkgreen", "brown", "red"), na.value = "black", name = "Vanligaste utsädet i Sveriges härader \n 1880 (i liter)") +
+  theme_void() +
+  theme(panel.background = element_rect(fill = "lightblue"))
+```
+Det är också intressant att titta på datan i aggregerad form. Där blir det tydligt att havre var det överlägset mest sådda sädesslaget i Sverige 1880. Kornet var mindre vanligt än råget och vetet relativt oviktigt. 
+```{r}
+grain %>%
+  group_by(grain) %>%
+  summarise(liter = sum(liter)) %>%
+  ggplot(aes(grain, liter)) +
+  geom_col() +
+  scale_y_continuous(breaks = seq(0, 300000000, 25000000), labels = unit_format(unit = "000", scale = 1e-3)) +
+  labs(x = "Sädesslag", y = "Liter utsäde") +
+  theme_classic()
+```
+

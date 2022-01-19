@@ -1,0 +1,69 @@
+library(tidyverse)
+library(histmaps)
+library(readxl)
+
+census <- read.csv("X:/Censuses/1880.csv.gz", header = TRUE, sep = ",", fileEncoding = "UTF-8")
+recode_parish_census <- read.csv("C:/Users/jonat/Dropbox/Spannmålsinvasionen/recode_parishes_census.csv", header = TRUE, sep = ";")
+recode_parish_map <- read_excel("C:/Users/jonat/Dropbox/Spannmålsinvasionen/recode_parishes_map.xlsx")
+harader <- read_excel("C:/Users/jonat/Dropbox/Spannmålsinvasionen/Härader.xlsx")
+grain <- read_excel("C:/Users/jonat/Dropbox/Spannmålsinvasionen/Book1.xlsx")
+
+harader <- harader %>%
+  mutate(From = ifelse(is.na(From), 0, From)) %>% 
+  mutate(Till = ifelse(is.na(Till), 2000, Till)) %>% 
+  filter(From <= 1880 & Till >= 1880) %>%
+  mutate(Kod = substr(Kod, 4, nchar(Kod))) %>%
+  select(c(Län, Område, Kod, Församling)) %>%
+  mutate(Kod = as.numeric(Kod)) %>%
+  rename("Area" = "Område") %>%
+  mutate(Area = ifelse(Län == "Jönköping" & Area == "Östra härad", "Östra härad Jön", 
+                       ifelse(Län == "Blekinge" & Area == "Östra härad", "Östra härad Ble", Area)))
+
+grain <- grain %>% 
+  rename("Area" = "Område") %>%
+  rowwise() %>%
+  mutate(wheat = sum(Höstvete, Vårvete, na.rm = TRUE)) %>% 
+  mutate(rye = sum(Höstråg, Vårråg, na.rm = TRUE)) %>% 
+  mutate(barley = as.numeric(Korn)) %>% mutate(oats = as.numeric(Havre)) %>%
+  mutate(wheat_litre = ifelse(Mått == "Kubikfot", (wheat*26.17), (wheat*164.871))) %>%
+  mutate(rye_litre = ifelse(Mått == "Kubikfot", (rye*26.17), (rye*164.871))) %>%
+  mutate(barley_litre = ifelse(Mått == "Kubikfot", (barley*26.17), (barley*164.871))) %>%
+  mutate(oats_litre = ifelse(Mått == "Kubikfot", (oats*26.17), (oats*164.871))) %>%
+  mutate(wheat_price = (wheat_litre/100)*13.25,
+         rye_price = (rye_litre/100)*10.65,
+         barley_price = (barley_litre/100)*8.56,
+         oats_price = (oats_litre/100)*4.97) %>%
+  mutate(Grains_sowed = sum(wheat_price, rye_price, barley_price, oats_price)) %>%
+  mutate(Area = ifelse(Län == "Jönköping" & Area == "Östra härad", "Östra härad Jön", 
+                       ifelse(Län == "Blekinge" & Area == "Östra härad", "Östra härad Ble", Area))) %>%
+  select(Area, Grains_sowed)
+
+pop <- census %>%
+  filter(SE1880A_URBAN == 1 & SE1880A_PARSE != 88001001 & SE1880A_PARSE != 128701003) %>%
+  group_by(SE1880A_PARSE) %>%
+  summarise(n = n()) %>%
+  left_join(recode_parish_census, by = "SE1880A_PARSE") %>%
+  mutate(SE1880A_PARSE = ifelse(!is.na(Kod), Kod, SE1880A_PARSE)) %>% 
+  select(-Kod) %>%
+  left_join(harader, by = c("SE1880A_PARSE" = "Kod")) %>%
+  group_by(Area) %>%
+  summarise(pop = sum(n))
+
+p_map <- hist_boundaries(date = "1880", type = "parish", format = "sf") %>%
+  left_join(recode_parish_map, by = "nadkod") %>%
+  mutate(nadkod = ifelse(!is.na(Kod), Kod, nadkod)) %>%
+  select(-Kod) %>%
+  left_join(harader, by = c("nadkod" = "Kod"))
+
+h_map <- p_map %>%
+  group_by(Area) %>%
+  summarise() %>%
+  left_join(grain, by = "Area") %>%
+  left_join(pop, by = "Area") %>%
+  mutate(pc_oats = oats_litre/pop)
+
+ggplot(h_map, aes(fill = pc_oats)) +
+  geom_sf(colour = "NA") +
+  scale_fill_continuous(low = "lightgrey", high = "darkgreen", guide = "colorbar", na.value = "white", name = "Utsäde per capita \n 1880") +
+  theme_void() +
+  theme(panel.background = element_rect(fill = "lightblue"))
